@@ -1,8 +1,0 @@
-engine:
-  service:
-    type: NodePort
-    # Allow Kubernetes to allocate node ports automatically. Override if specific ports are required.
-    annotations: {}
-
-worker:
-  replicaCount: 1
