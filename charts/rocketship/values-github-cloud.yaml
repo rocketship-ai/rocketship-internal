@@ -1,0 +1,80 @@
+auth:
+  mode: oidc
+  oidc:
+    mode: github
+    issuer: https://auth.rocketship.sh
+    clientID: rocketship-cli
+    audience: rocketship-cli
+    deviceEndpoint: https://auth.rocketship.sh/device/code
+    tokenEndpoint: https://auth.rocketship.sh/token
+    jwksURL: https://auth.rocketship.sh/.well-known/jwks.json
+    scopes:
+    - read:user
+    - user:email
+  broker:
+    enabled: true
+    issuer: https://auth.rocketship.sh
+    audience: rocketship-cli
+    clientID: rocketship-cli
+    scopes:
+    - read:user
+    - user:email
+    github:
+      clientID: Ov23li6jRbnoviVURzs9
+      clientSecretSecret: rocketship-github-oauth
+      scopes:
+      - read:user
+      - user:email
+    signingKey:
+      secretName: rocketship-auth-broker-signing
+      key: signing-key.pem
+      mountPath: /var/run/rocketship
+      fileName: signing-key.pem
+    store:
+      path: /var/lib/rocketship/broker-store.enc
+      mountPath: /var/lib/rocketship
+      encryptionKeySecret: rocketship-auth-broker-store
+      encryptionKeyKey: ROCKETSHIP_BROKER_STORE_KEY
+      emptyDir: true
+    env:
+    - name: ROCKETSHIP_BROKER_ACCESS_TTL
+      value: 15m
+    - name: ROCKETSHIP_BROKER_REFRESH_TTL
+      value: 720h
+    service:
+      type: ClusterIP
+      port: 8080
+    ingress:
+      enabled: true
+      className: nginx
+      annotations: {}
+      hosts:
+      - host: auth.rocketship.sh
+        paths:
+        - path: /
+          pathType: Prefix
+      tls:
+      - secretName: rocketship-cloud-tls
+        hosts:
+        - auth.rocketship.sh
+    envFrom:
+    - secretRef:
+        name: rocketship-github-oauth
+    - secretRef:
+        name: rocketship-auth-broker-store
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
+    nginx.ingress.kubernetes.io/proxy-body-size: '0'
+  hosts:
+  - host: cli.rocketship.sh
+    paths:
+    - path: /
+      pathType: Prefix
+  tls:
+  - secretName: rocketship-cloud-tls
+    hosts:
+    - cli.rocketship.sh

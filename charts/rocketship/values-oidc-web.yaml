@@ -1,0 +1,78 @@
+# Example values for enabling oauth2-proxy in front of the Rocketship web endpoints
+# This configuration assumes:
+# - A GitHub OAuth application configured for the Rocketship web UI (same app as the CLI device flow)
+# - A Kubernetes secret named `oauth2-proxy-credentials` with keys:
+#     clientID          -> OAuth client ID (plain text)
+#     clientSecret      -> OAuth client secret
+#     cookieSecret      -> 16-byte random string (hex or base64)
+# - The Rocketship engine service will serve HTTP traffic (health/UI) on port 7701
+
+web:
+  enabled: true
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      nginx.ingress.kubernetes.io/ssl-redirect: "true"
+      nginx.ingress.kubernetes.io/proxy-body-size: "0"
+      nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
+    hosts:
+      - host: app.rocketship.sh
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: rocketship-cloud-tls
+        hosts:
+          - app.rocketship.sh
+  oauth2Proxy:
+    enabled: true
+    replicaCount: 1
+    # Set to empty to let the chart route requests to the engine HTTP port (7701)
+    upstreamOverride: ""
+    extraArgs:
+      - --cookie-name=_rocketship_auth
+      - --cookie-secure=true
+      - --cookie-samesite=lax
+      - --scope=openid profile email
+      - --email-domain=*
+      - --skip-provider-button=true
+    env:
+      - name: OAUTH2_PROXY_PROVIDER
+        value: github
+      - name: OAUTH2_PROXY_CLIENT_ID
+        valueFrom:
+          secretKeyRef:
+            name: oauth2-proxy-credentials
+            key: clientID
+      - name: OAUTH2_PROXY_CLIENT_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: oauth2-proxy-credentials
+            key: clientSecret
+      - name: OAUTH2_PROXY_COOKIE_SECRET
+        valueFrom:
+          secretKeyRef:
+            name: oauth2-proxy-credentials
+            key: cookieSecret
+      - name: OAUTH2_PROXY_REDIRECT_URL
+        value: https://app.rocketship.sh/oauth2/callback
+      - name: OAUTH2_PROXY_PASS_AUTHORIZATION_HEADER
+        value: "true"
+      - name: OAUTH2_PROXY_SET_AUTHORIZATION_HEADER
+        value: "true"
+      - name: OAUTH2_PROXY_SET_XAUTHREQUEST
+        value: "true"
+      - name: OAUTH2_PROXY_FORCE_HTTPS
+        value: "false"
+      - name: OAUTH2_PROXY_HTTPS_ADDRESS
+        value: ":0"
+
+      - name: OAUTH2_PROXY_SCOPE
+        value: "read:user user:email"
+      - name: OAUTH2_PROXY_EMAIL_DOMAINS
+        value: "*"
+
+auth:
+  oidc:
+    enabled: false
