@@ -9,6 +9,7 @@ auth:
     tokenEndpoint: https://auth.rocketship.sh/token
     jwksURL: https://auth.rocketship.sh/.well-known/jwks.json
     scopes:
+    - read:org
     - read:user
     - user:email
   broker:
@@ -17,12 +18,14 @@ auth:
     audience: rocketship-cli
     clientID: rocketship-cli
     scopes:
+    - read:org
     - read:user
     - user:email
     github:
       clientID: Ov23li6jRbnoviVURzs9
       clientSecretSecret: rocketship-github-oauth
       scopes:
+      - read:org
       - read:user
       - user:email
     signingKey:
