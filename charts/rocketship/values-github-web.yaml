@@ -34,7 +34,6 @@ web:
       - --cookie-name=_rocketship_auth
       - --cookie-secure=true
       - --cookie-samesite=lax
-      - --scope=openid profile email
       - --email-domain=*
       - --skip-provider-button=true
     env:
@@ -69,7 +68,7 @@ web:
         value: ":0"
 
       - name: OAUTH2_PROXY_SCOPE
-        value: "read:user user:email"
+        value: "read:org read:user user:email"
       - name: OAUTH2_PROXY_EMAIL_DOMAINS
         value: "*"
 
