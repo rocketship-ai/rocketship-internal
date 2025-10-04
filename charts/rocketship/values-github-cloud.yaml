@@ -63,7 +63,8 @@ auth:
     envFrom:
       - secretRef:
           name: rocketship-github-oauth
-
+    image:
+      tag: v0.5.24
 ingress:
   enabled: true
   className: nginx
@@ -80,7 +81,6 @@ ingress:
     - secretName: rocketship-cloud-tls
       hosts:
         - cli.rocketship.sh
-
 postgres:
   enabled: true
   auth:
@@ -92,3 +92,9 @@ postgres:
     persistence:
       enabled: true
       size: 5Gi
+engine:
+  image:
+    tag: v0.5.24
+worker:
+  image:
+    tag: v0.5.24
