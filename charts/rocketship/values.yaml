@@ -10,13 +10,9 @@ imagePullSecrets: []
 podAnnotations: {}
 
 podSecurityContext: {}
-
 securityContext: {}
 
 temporal:
-  # Hostname:port of the Temporal frontend service. The default assumes you
-  # install Temporal into the "rocketship" namespace with release name "temporal".
-  # Override as needed or set via --set temporal.host=...
   host: "temporal-frontend.rocketship:7233"
   namespace: "default"
 
@@ -57,13 +53,14 @@ auth:
       key: signing-key.pem
       mountPath: /var/run/rocketship
       fileName: signing-key.pem
-    store:
-      path: /var/lib/rocketship/broker-store.enc
-      mountPath: /var/lib/rocketship
-      encryptionKeySecret: ""
-      encryptionKeyKey: broker-store-key
-      emptyDir: true
-      existingClaim: ""
+    database:
+      url: ""
+      secretName: ""
+      secretKey: DATABASE_URL
+    refreshTokenKey:
+      secretName: ""
+      secretKey: ROCKETSHIP_BROKER_REFRESH_KEY
+      value: ""
     env: []
     envFrom: []
     resources: {}
@@ -147,3 +144,14 @@ web:
     nodeSelector: {}
     tolerations: []
     affinity: {}
+
+postgres:
+  enabled: true
+  auth:
+    username: rocketship
+    password: ""
+    database: rocketship
+  primary:
+    persistence:
+      enabled: true
+      size: 8Gi

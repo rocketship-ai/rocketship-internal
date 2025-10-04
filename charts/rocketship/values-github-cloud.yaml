@@ -9,41 +9,41 @@ auth:
     tokenEndpoint: https://auth.rocketship.sh/token
     jwksURL: https://auth.rocketship.sh/.well-known/jwks.json
     scopes:
-    - read:org
-    - read:user
-    - user:email
+      - read:org
+      - read:user
+      - user:email
   broker:
     enabled: true
     issuer: https://auth.rocketship.sh
     audience: rocketship-cli
     clientID: rocketship-cli
     scopes:
-    - read:org
-    - read:user
-    - user:email
+      - read:org
+      - read:user
+      - user:email
     github:
       clientID: Ov23li6jRbnoviVURzs9
       clientSecretSecret: rocketship-github-oauth
       scopes:
-      - read:org
-      - read:user
-      - user:email
+        - read:org
+        - read:user
+        - user:email
     signingKey:
       secretName: rocketship-auth-broker-signing
       key: signing-key.pem
       mountPath: /var/run/rocketship
       fileName: signing-key.pem
-    store:
-      path: /var/lib/rocketship/broker-store.enc
-      mountPath: /var/lib/rocketship
-      encryptionKeySecret: rocketship-auth-broker-store
-      encryptionKeyKey: ROCKETSHIP_BROKER_STORE_KEY
-      emptyDir: true
+    database:
+      secretName: rocketship-auth-broker-database
+      secretKey: DATABASE_URL
+    refreshTokenKey:
+      secretName: rocketship-auth-broker-secrets
+      secretKey: ROCKETSHIP_BROKER_REFRESH_KEY
     env:
-    - name: ROCKETSHIP_BROKER_ACCESS_TTL
-      value: 15m
-    - name: ROCKETSHIP_BROKER_REFRESH_TTL
-      value: 720h
+      - name: ROCKETSHIP_BROKER_ACCESS_TTL
+        value: 15m
+      - name: ROCKETSHIP_BROKER_REFRESH_TTL
+        value: 720h
     service:
       type: ClusterIP
       port: 8080
@@ -52,32 +52,43 @@ auth:
       className: nginx
       annotations: {}
       hosts:
-      - host: auth.rocketship.sh
-        paths:
-        - path: /
-          pathType: Prefix
+        - host: auth.rocketship.sh
+          paths:
+            - path: /
+              pathType: Prefix
       tls:
-      - secretName: rocketship-cloud-tls
-        hosts:
-        - auth.rocketship.sh
+        - secretName: rocketship-cloud-tls
+          hosts:
+            - auth.rocketship.sh
     envFrom:
-    - secretRef:
-        name: rocketship-github-oauth
-    - secretRef:
-        name: rocketship-auth-broker-store
+      - secretRef:
+          name: rocketship-github-oauth
+
 ingress:
   enabled: true
   className: nginx
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: GRPC
-    nginx.ingress.kubernetes.io/ssl-redirect: 'true'
-    nginx.ingress.kubernetes.io/proxy-body-size: '0'
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
   hosts:
-  - host: cli.rocketship.sh
-    paths:
-    - path: /
-      pathType: Prefix
+    - host: cli.rocketship.sh
+      paths:
+        - path: /
+          pathType: Prefix
   tls:
-  - secretName: rocketship-cloud-tls
-    hosts:
-    - cli.rocketship.sh
+    - secretName: rocketship-cloud-tls
+      hosts:
+        - cli.rocketship.sh
+
+postgres:
+  enabled: true
+  auth:
+    username: rocketship
+    existingSecret: rocketship-postgres-auth
+    existingSecretPasswordKey: postgres-password
+    database: rocketship
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
