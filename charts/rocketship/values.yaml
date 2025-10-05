@@ -55,10 +55,10 @@ auth:
       fileName: signing-key.pem
     database:
       url: ""
-      secretName: ""
+      secretName: rocketship-auth-broker-database
       secretKey: DATABASE_URL
     refreshTokenKey:
-      secretName: ""
+      secretName: rocketship-auth-broker-secrets
       secretKey: ROCKETSHIP_BROKER_REFRESH_KEY
       value: ""
     env: []
@@ -154,4 +154,20 @@ postgres:
   primary:
     persistence:
       enabled: true
+      size: 8Gi
+
+postgresql:
+  auth:
+    username: rocketship
+    database: rocketship
+    existingSecret: rocketship-postgres-auth
+    existingSecretPasswordKey: password
+    existingSecretPostgresPasswordKey: postgres-password
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: 16.3.0-debian-12-r23
+  primary:
+    persistence:
+      existingClaim: ""
       size: 8Gi

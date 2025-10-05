@@ -85,10 +85,20 @@ postgres:
   enabled: true
   auth:
     username: rocketship
-    existingSecret: rocketship-postgres-auth
-    existingSecretPasswordKey: postgres-password
     database: rocketship
   primary:
     persistence:
       enabled: true
       size: 5Gi
+
+postgresql:
+  auth:
+    existingSecret: rocketship-postgres-auth
+    existingSecretPasswordKey: password
+    existingSecretPostgresPasswordKey: postgres-password
+    username: rocketship
+    database: rocketship
+  image:
+    registry: docker.io
+    repository: bitnamilegacy/postgresql
+    tag: 16.3.0-debian-12-r23

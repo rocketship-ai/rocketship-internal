@@ -1,31 +1,30 @@
 # Deploy Rocketship on DigitalOcean Kubernetes
 
-This walkthrough recreates the production proof-of-concept we validated on DigitalOcean Kubernetes (DOKS). It covers standing up Temporal, terminating TLS through an NGINX ingress, wiring the CLI via
-profiles, and provisioning the optional bundled Postgres dependency. The chart pulls Rocketship images directly from Docker Hub (`rocketshipai/...`), so you no longer need to maintain a separate registry
-unless desired.
+This guide walks through deploying the Rocketship chart on DigitalOcean Kubernetes (DOKS). It assumes you are working from the `rocketship-internal` repository, which already contains production presets for the cloud environment. The chart pulls images from Docker Hub (`rocketshipai/...`), so you do not need a separate registry.
 
-The steps assume you control public DNS for `cli.rocketship.sh`, `app.rocketship.sh`, and `auth.rocketship.sh` (or equivalent) and can issue a SAN certificate that covers all three hosts.
+We will:
+
+1. Install ingress-nginx and Temporal.
+2. Create required TLS and application secrets.
+3. Deploy the Rocketship chart (engine, worker, auth broker, optional web proxy, and bundled Postgres).
+4. Verify the deployment and note the day-to-day maintenance steps.
 
 ## Prerequisites
 
-- DigitalOcean account with:
-  - A Kubernetes cluster (2 × CPU-optimised nodes were used during validation)
-- [`doctl`](https://docs.digitalocean.com/reference/doctl/how-to/install/) authenticated (`doctl auth init`)
-- `kubectl` configured for the cluster (`doctl kubernetes cluster kubeconfig save <cluster-name>`)
-- Docker CLI with [Buildx](https://docs.docker.com/build/install-buildx/) (if you plan to build custom images)
-- Helm 3
-- TLS assets
-  - `certificate.crt` and `private.key` (ZeroSSL issues these; concatenate the intermediate bundle with the server cert if required)
+- A DigitalOcean Kubernetes cluster (the reference setup uses a 2-node CPU-optimised pool).
+- [`doctl`](https://docs.digitalocean.com/reference/doctl/how-to/install/) authenticated with your account.
+- `kubectl` configured for the cluster (`doctl kubernetes cluster kubeconfig save <cluster-name>`).
+- Helm 3.
+- TLS certificate and key for the public endpoints (`cli.rocketship.sh`, `app.rocketship.sh`, `auth.rocketship.sh`).
 
-All commands below run from the repository root.
+All commands below run from the root of the `rocketship-internal` repository unless stated otherwise.
 
-## 1. Set Up Namespaces and Ingress Controller
+## 1. Install ingress-nginx
 
 ```bash
 kubectl create namespace rocketship
 kubectl config set-context --current --namespace=rocketship
 
-# Install ingress-nginx (DigitalOcean automatically provisions a Load Balancer)
 helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
 helm repo update
 helm install ingress-nginx ingress-nginx/ingress-nginx \
@@ -34,7 +33,7 @@ helm install ingress-nginx ingress-nginx/ingress-nginx \
   --set controller.service.annotations."service\.beta\.kubernetes\.io/do-loadbalancer-enable-proxy-protocol"="true"
 ```
 
-The annotation enables PROXY protocol support on DigitalOcean’s load balancer, which keeps source IPs available in the ingress logs. Omit or adjust if you do not need it.
+> The annotation keeps client IP addresses visible in the ingress logs. Remove it if you do not need PROXY protocol support.
 
 ## 2. Install Temporal
 
@@ -43,226 +42,160 @@ helm repo add temporal https://go.temporal.io/helm-charts
 helm repo update
 
 helm install temporal temporal/temporal \
- --version 0.66.0 \
- --namespace rocketship \
- --set server.replicaCount=1 \
- --set cassandra.config.cluster_size=1 \
- --set elasticsearch.replicas=1 \
- --set prometheus.enabled=false \
- --set grafana.enabled=false \
- --wait --timeout 15m
+  --version 0.66.0 \
+  --namespace rocketship \
+  --set server.replicaCount=1 \
+  --set cassandra.config.cluster_size=1 \
+  --set elasticsearch.replicas=1 \
+  --set prometheus.enabled=false \
+  --set grafana.enabled=false \
+  --wait --timeout 15m
 ```
 
-Register the Temporal logical namespace the Rocketship worker will use:
+Register the logical namespace the worker will use:
 
 ```bash
 kubectl exec -n rocketship deploy/temporal-admintools -- \
- temporal operator namespace create --namespace default
+  temporal operator namespace create --namespace default
 ```
 
-(Keep default unless you intend to manage multiple namespaces; update Helm values accordingly later.)
-
-## 3. Create the TLS Secret
-
-Issue a SAN certificate that covers cli.rocketship.sh, app.rocketship.sh, and auth.rocketship.sh (Let’s Encrypt or ZeroSSL work well). After you have the combined cert/key, update the secret:
+## 3. TLS secret for ingress
 
 ```bash
-# optional: remove the old secret if it exists
 kubectl delete secret rocketship-cloud-tls -n rocketship 2>/dev/null || true
-```
-
-```bash
-# create the secret with the new cert/key
 kubectl create secret tls rocketship-cloud-tls \
- --namespace rocketship \
- --cert=/etc/letsencrypt/live/rocketship.sh/fullchain.pem \
- --key=/etc/letsencrypt/live/rocketship.sh/privkey.pem
+  --namespace rocketship \
+  --cert=/path/to/fullchain.pem \
+  --key=/path/to/privkey.pem
 ```
 
-## 4. Provision Postgres & Broker Secrets
+## 4. Postgres and broker secrets
 
-Rocketship’s auth broker stores organisations, users, and refresh tokens in Postgres. You can either point at an existing database or enable the bundled Bitnami chart. The steps below assume you are using
-the bundled chart.
+The chart bundles the Bitnami Postgres statefulset. For now we pin the legacy `bitnamilegacy/postgresql:16.3.0-debian-12-r23` image because Bitnami retired the original tag from Docker Hub. Replace it with a managed database or newer image as soon as you migrate.
 
-### Postgres password (Bitnami expects this key name)
+Create the secrets the chart expects:
 
 ```bash
+# PostgreSQL passwords (application user + superuser)
 kubectl create secret generic rocketship-postgres-auth \
- --namespace rocketship \
- --from-literal=postgres-password='<strong-password>'
-```
+  --namespace rocketship \
+  --from-literal=password='<postgres-password>' \
+  --from-literal=postgres-password='<postgres-password>'
 
-### DSN for the broker (targets the Bitnami service rocketship-postgresql:5432)
-
-```bash
+# Auth broker DSN (points at the statefulset service)
 kubectl create secret generic rocketship-auth-broker-database \
- --namespace rocketship \
- --from-literal=DATABASE_URL='postgres://rocketship:<strong-password>@rocketship-postgresql:5432/rocketship?sslmode=disable'
-```
+  --namespace rocketship \
+  --from-literal=DATABASE_URL='postgres://rocketship:<postgres-password>@rocketship-postgresql:5432/rocketship?sslmode=disable'
 
-### Refresh-token HMAC key (Base64-encoded)
-
-```bash
+# Refresh-token HMAC key (32 bytes, Base64 encoded)
 kubectl create secret generic rocketship-auth-broker-secrets \
- --namespace rocketship \
- --from-literal=ROCKETSHIP_BROKER_REFRESH_KEY="$(openssl rand -base64 32)"
+  --namespace rocketship \
+  --from-literal=ROCKETSHIP_BROKER_REFRESH_KEY="$(openssl rand -base64 32)"
 ```
 
-## 5. Signer & GitHub OAuth Secrets
-
-### 1. Signing key for JWTs:
+## 5. Auth broker signing key and GitHub OAuth secrets
 
 ```bash
-   openssl genrsa -out signing-key.pem 2048
-   kubectl create secret generic rocketship-auth-broker-signing \
-    --namespace rocketship \
-    --from-file=signing-key.pem
-```
+# RSA signing key for JWTs
+openssl genrsa -out signing-key.pem 2048
+kubectl create secret generic rocketship-auth-broker-signing \
+  --namespace rocketship \
+  --from-file=signing-key.pem
 
-### 2. GitHub OAuth application (enable Device Flow, set callback to https://cli.rocketship.sh/oauth2/callback). Store its secret:
+# GitHub OAuth (device flow). Enable Device Flow in the app settings.
+kubectl create secret generic rocketship-github-oauth \
+  --namespace rocketship \
+  --from-literal=ROCKETSHIP_GITHUB_CLIENT_SECRET='<github-client-secret>'
 
-```bash
-   kubectl create secret generic rocketship-github-oauth \
-    --namespace rocketship \
-    --from-literal=ROCKETSHIP_GITHUB_CLIENT_SECRET='<github-client-secret>'
-```
-
-### 3. oauth2-proxy credentials (used by the web preset):
-
-```bash
-   COOKIE_SECRET=$(python - <<'PY'
-
+# oauth2-proxy (web flows) – use the same GitHub App so UI and CLI share a client
+COOKIE_SECRET=$(python - <<'PY'
 import secrets, base64
 print(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())
 PY
 )
 kubectl create secret generic oauth2-proxy-credentials \
---namespace rocketship \
---from-literal=clientID='<github-client-id>' \
---from-literal=clientSecret='<github-client-secret>' \
---from-literal=cookieSecret="$COOKIE_SECRET"
+  --namespace rocketship \
+  --from-literal=clientID='<github-client-id>' \
+  --from-literal=clientSecret='<github-client-secret>' \
+  --from-literal=cookieSecret="$COOKIE_SECRET"
 ```
 
-## 6. Deploy the Rocketship Helm Chart
+> If you previously created the deprecated `rocketship-auth-broker-store` secret, you can delete it once the new deployment is healthy.
 
-The chart pulls images from Docker Hub (`rocketshipai/...`) by default. Use the production + GitHub presets and enable the bundled Postgres:
+## 6. (Optional) Refresh chart dependencies
+
+The repository already vendors the Bitnami Postgres chart (`charts/postgresql-15.5.20.tgz`). If you want to rebuild the tarball after changing the dependency, run:
+
+```bash
+helm dependency update charts/rocketship
+```
+
+## 7. Deploy Rocketship
+
+The production presets already reference the secret names above and configure the bundled Postgres. Deploy with:
 
 ```bash
 helm upgrade --install rocketship charts/rocketship \
---namespace rocketship \
--f charts/rocketship/values-production.yaml \
--f charts/rocketship/values-github-cloud.yaml \
--f charts/rocketship/values-github-web.yaml \
---set auth.broker.github.clientID='<github-client-id>' \
---set postgres.enabled=true \
---set postgres.auth.existingSecret=rocketship-postgres-auth \
---set postgres.auth.existingSecretPasswordKey=postgres-password \
---wait
+  --namespace rocketship \
+  -f charts/rocketship/values-production.yaml \
+  -f charts/rocketship/values-github-cloud.yaml \
+  -f charts/rocketship/values-github-web.yaml \
+  --wait
 ```
 
-If you also run the self-hosted discovery presets, add the appropriate overlays (values-github-selfhost.yaml, values-oidc-web.yaml, etc.). Removing the postgres.enabled=true flag means no database will be
-deployed; in that case, provide the DSN to an external Postgres instance in values-github-cloud.yaml.
+If you prefer not to bake the GitHub Client ID into version control, remove it from `values-github-cloud.yaml` and supply it at install time via `--set auth.broker.github.clientID=<github-client-id>`.
 
-Confirm the pods are healthy:
+### Secret recap
+
+| Secret name                        | Purpose                                      |
+| ---------------------------------- | -------------------------------------------- |
+| `rocketship-postgres-auth`         | Postgres passwords (`password`, `postgres-password`) |
+| `rocketship-auth-broker-database`  | Broker DSN (`DATABASE_URL`)                  |
+| `rocketship-auth-broker-secrets`   | Refresh-token HMAC key                       |
+| `rocketship-auth-broker-signing`   | RSA signing key                              |
+| `rocketship-github-oauth`          | Device-flow GitHub OAuth client secret       |
+| `oauth2-proxy-credentials`         | Web OAuth client ID/secret/cookie secret     |
+| `rocketship-cloud-tls`             | TLS cert for ingress                         |
+
+## 8. Verify pods
 
 ```bash
 kubectl get pods -n rocketship
 ```
 
-rocketship-engine, rocketship-worker, rocketship-auth-broker, and rocketship-web-oauth2-proxy should report READY 1/1. Temporal services may restart once while Cassandra and Elasticsearch initialise—that
-is expected.
+`rocketship-engine`, `rocketship-worker`, `rocketship-auth-broker`, `rocketship-web-oauth2-proxy`, and `rocketship-postgresql-0` should all report `READY 1/1` once the StatefulSet finishes initialising. Temporal components may restart once while Cassandra and Elasticsearch bootstrap.
 
-## 7. Configure the CLI & Web Login
-
-1. CLI: ensure every developer has the rocketship binary from the latest release, then run:
+## 9. CLI and web login
 
 ```bash
-   rocketship profile create cloud grpcs://cli.rocketship.sh
-   rocketship profile use cloud
-   rocketship login
-   rocketship status
-```
-
-The CLI handles GitHub device flow, stores the refresh token securely, and auto-renews access tokens on each command.
-
-2. Web UI: browse to https://app.rocketship.sh/ in an incognito session and authenticate via GitHub. Once approved, oauth2-proxy maintains the session (\_rocketship_auth cookie) while forwarding requests to the engine HTTP port.
-
-First-time logins return a pending role. Call POST https://auth.rocketship.sh/api/orgs with the bearer token to create the first organisation/project, or accept an invitation from an existing admin before
-running suites.
-
-## 8. Bring Your Own IdP (Optional)
-
-If your organisation mandates an internal IdP (Auth0, Okta, Azure AD, …), update values-oidc-web.yaml with the issuer, client IDs, and scopes, and deploy:
-
-```bash
-helm upgrade --install rocketship charts/rocketship \
- --namespace rocketship \
- -f charts/rocketship/values-production.yaml \
- -f charts/rocketship/values-oidc-web.yaml \
- --set postgres.enabled=true \
- --set postgres.auth.existingSecret=rocketship-postgres-auth \
- --set postgres.auth.existingSecretPasswordKey=postgres-password \
- --wait
-```
-
-Rocketship’s engine trusts whatever JWTs your IdP mints; the RBAC checks are the same.
-
-### RBAC considerations
-
-- Tokens carry organisation + project roles (read, write, owner, service_account). Engine interceptors reject RPCs that lack the necessary role.
-- Pending users must create or join an organisation via the broker API before they can run suites.
-- The broker persists all roles in Postgres, so every deployment (cloud or self-hosted) enforces the same claim checks.
-
-## 9. Point DNS at the Load Balancer
-
-Create A (or CNAME) records for cli.rocketship.sh, app.rocketship.sh, and auth.rocketship.sh pointing at the ingress load balancer IP. DigitalOcean DNS usually updates within a minute; public resolvers may
-take longer.
-
-## 10. Smoke Test the Endpoints
-
-```bash
-curl -v https://cli.rocketship.sh/healthz # returns 415 (gRPC)
-curl -v https://auth.rocketship.sh/healthz # broker health
-```
-
-Use the CLI profile to run a simple suite:
-
-```bash
-rocketship profile list
+rocketship profile create cloud grpcs://cli.rocketship.sh
+rocketship profile use cloud
 rocketship login
-rocketship run -f examples/simple-http/rocketship.yaml
+rocketship status
 ```
 
-If you see connection refused against 127.0.0.1:7700, confirm the profile points at grpcs://cli.rocketship.sh (port 443) and DNS has propagated.
+Visit `https://app.rocketship.sh/` in a new browser session to confirm the oauth2-proxy round-trip. First-time logins receive a `pending` role; either create the first organisation via `POST https://auth.rocketship.sh/api/orgs` with your bearer token, or invite the user from another admin account before running suites.
 
-## 11. Updating the Deployment
+## 10. Updating the deployment
 
-1. Tag a new release in GitHub (git tag v0.x.y && git push --tags).
-2. The release pipeline builds/pushes Docker Hub images and opens a PR in the internal chart repo bumping image tags.
-3. Merge the PR, then upgrade:
-
-```bash
+1. Create a release tag in the public repository (`git tag vX.Y.Z && git push --tags`).
+2. The release workflow publishes Docker Hub images and opens a PR in `rocketship-internal` bumping `charts/rocketship/values-production.yaml` to the new tag.
+3. Merge the PR, then roll out the new version:
+   ```bash
    helm upgrade rocketship charts/rocketship \
-    --namespace rocketship \
-    -f charts/rocketship/values-production.yaml \
-    -f charts/rocketship/values-github-cloud.yaml \
-    -f charts/rocketship/values-github-web.yaml \
-    --wait
-```
+     --namespace rocketship \
+     -f charts/rocketship/values-production.yaml \
+     -f charts/rocketship/values-github-cloud.yaml \
+     -f charts/rocketship/values-github-web.yaml \
+     --wait
+   ```
+4. Monitor rollout status (`kubectl rollout status deploy/rocketship-engine -n rocketship`, etc.).
 
-4. Monitor rollouts:
+## 11. Troubleshooting
 
-```bash
-   kubectl rollout status deploy/rocketship-engine -n rocketship
-   kubectl rollout status deploy/rocketship-worker -n rocketship
-```
+- **Auth broker stuck in `CrashLoopBackOff` with password errors** – ensure the `rocketship-postgres-auth` secret has both keys (`password`, `postgres-password`). If you deployed before wiring the secret, the StatefulSet may have persisted a random password; delete the `rocketship-postgresql` StatefulSet and its PVC to reinitialise with your credentials.
+- **Postgres image pull failures** – the chart currently pins `bitnamilegacy/postgresql:16.3.0-debian-12-r23`. Update `postgresql.image.repository/tag` if you migrate to a managed database or a newer image.
+- **Pending role after login** – call `POST /api/orgs` with your access token or accept an invitation before running suites.
+- **Temporal namespace errors** – rerun the namespace registration step in section 2.
 
-## 12. Troubleshooting Tips
-
-- CrashLoopBackOff with exec format error → image pulled for wrong architecture; rebuild with --platform linux/amd64.
-- Worker logs show Namespace <name> is not found → run the Temporal namespace registration step and ensure temporal.namespace matches.
-- pending role on login → call POST /api/orgs or accept an invitation before running suites.
-- grpc: received message larger than max → adjust ingress/proxy body size annotations if you push large suites.
-
-With these steps you have a durable Rocketship installation bridging a managed Temporal stack, ingress TLS, GitHub SSO, and the CLI profile system—ready for teams to run suites from their laptops or CI
-pipelines.
+With these steps, the hosted chart provides a ready-made Rocketship environment backed by Temporal, ingress-nginx, GitHub SSO, and a Postgres database suitable for development or proof-of-concept use on DigitalOcean Kubernetes.
