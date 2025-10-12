@@ -122,7 +122,16 @@ kubectl create secret generic oauth2-proxy-credentials \
 
 > If you previously created the deprecated `rocketship-auth-broker-store` secret, you can delete it once the new deployment is healthy.
 
-## 6. (Optional) Refresh chart dependencies
+## 6. Add Postmark Email Secret
+
+```bash
+kubectl create secret generic rocketship-postmark-secret \
+    --from-literal=ROCKETSHIP_EMAIL_FROM="noreply@rocketship.sh" \
+    --from-literal=ROCKETSHIP_POSTMARK_SERVER_TOKEN="<postmark token>" \
+    -n rocketship
+```
+
+## 7. (Optional) Refresh chart dependencies
 
 The repository already vendors the Bitnami Postgres chart (`charts/postgresql-15.5.20.tgz`). If you want to rebuild the tarball after changing the dependency, run:
 
@@ -130,7 +139,7 @@ The repository already vendors the Bitnami Postgres chart (`charts/postgresql-15
 helm dependency update charts/rocketship
 ```
 
-## 7. Deploy Rocketship
+## 8. Deploy Rocketship
 
 The production presets already reference the secret names above and configure the bundled Postgres. Deploy with:
 
@@ -147,17 +156,17 @@ If you prefer not to bake the GitHub Client ID into version control, remove it f
 
 ### Secret recap
 
-| Secret name                        | Purpose                                      |
-| ---------------------------------- | -------------------------------------------- |
-| `rocketship-postgres-auth`         | Postgres passwords (`password`, `postgres-password`) |
-| `rocketship-auth-broker-database`  | Broker DSN (`DATABASE_URL`)                  |
-| `rocketship-auth-broker-secrets`   | Refresh-token HMAC key                       |
-| `rocketship-auth-broker-signing`   | RSA signing key                              |
-| `rocketship-github-oauth`          | Device-flow GitHub OAuth client secret       |
-| `oauth2-proxy-credentials`         | Web OAuth client ID/secret/cookie secret     |
-| `rocketship-cloud-tls`             | TLS cert for ingress                         |
+| Secret name                       | Purpose                                              |
+| --------------------------------- | ---------------------------------------------------- |
+| `rocketship-postgres-auth`        | Postgres passwords (`password`, `postgres-password`) |
+| `rocketship-auth-broker-database` | Broker DSN (`DATABASE_URL`)                          |
+| `rocketship-auth-broker-secrets`  | Refresh-token HMAC key                               |
+| `rocketship-auth-broker-signing`  | RSA signing key                                      |
+| `rocketship-github-oauth`         | Device-flow GitHub OAuth client secret               |
+| `oauth2-proxy-credentials`        | Web OAuth client ID/secret/cookie secret             |
+| `rocketship-cloud-tls`            | TLS cert for ingress                                 |
 
-## 8. Verify pods
+## 9. Verify pods
 
 ```bash
 kubectl get pods -n rocketship
@@ -165,7 +174,7 @@ kubectl get pods -n rocketship
 
 `rocketship-engine`, `rocketship-worker`, `rocketship-auth-broker`, `rocketship-web-oauth2-proxy`, and `rocketship-postgresql-0` should all report `READY 1/1` once the StatefulSet finishes initialising. Temporal components may restart once while Cassandra and Elasticsearch bootstrap.
 
-## 9. CLI and web login
+## 10. CLI and web login
 
 ```bash
 rocketship profile create cloud grpcs://cli.rocketship.sh
@@ -176,7 +185,7 @@ rocketship status
 
 Visit `https://app.rocketship.sh/` in a new browser session to confirm the oauth2-proxy round-trip. First-time logins receive a `pending` role; either create the first organisation via `POST https://auth.rocketship.sh/api/orgs` with your bearer token, or invite the user from another admin account before running suites.
 
-## 10. Updating the deployment
+## 11. Updating the deployment
 
 1. Create a release tag in the public repository (`git tag vX.Y.Z && git push --tags`).
 2. The release workflow publishes Docker Hub images and opens a PR in `rocketship-internal` bumping `charts/rocketship/values-production.yaml` to the new tag.
@@ -191,7 +200,7 @@ Visit `https://app.rocketship.sh/` in a new browser session to confirm the oauth
    ```
 4. Monitor rollout status (`kubectl rollout status deploy/rocketship-engine -n rocketship`, etc.).
 
-## 11. Troubleshooting
+## 12. Troubleshooting
 
 - **Auth broker stuck in `CrashLoopBackOff` with password errors** – ensure the `rocketship-postgres-auth` secret has both keys (`password`, `postgres-password`). If you deployed before wiring the secret, the StatefulSet may have persisted a random password; delete the `rocketship-postgresql` StatefulSet and its PVC to reinitialise with your credentials.
 - **Postgres image pull failures** – the chart currently pins `bitnamilegacy/postgresql:16.3.0-debian-12-r23`. Update `postgresql.image.repository/tag` if you migrate to a managed database or a newer image.
