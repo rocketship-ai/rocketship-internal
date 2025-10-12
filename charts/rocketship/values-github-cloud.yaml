@@ -63,6 +63,8 @@ auth:
     envFrom:
       - secretRef:
           name: rocketship-github-oauth
+      - secretRef:
+          name: rocketship-postmark-secret
 
 ingress:
   enabled: true
