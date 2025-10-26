@@ -18,13 +18,13 @@ ingress:
 engine:
   image:
     repository: rocketshipai/rocketship-engine
-    tag: v0.5.31
+    tag: v0.5.33
 worker:
   image:
     repository: rocketshipai/rocketship-worker
-    tag: v0.5.31
+    tag: v0.5.33
 auth:
   broker:
     image:
       repository: rocketshipai/rocketship-auth-broker
-      tag: v0.5.31
+      tag: v0.5.33
