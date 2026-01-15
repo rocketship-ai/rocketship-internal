@@ -1,0 +1,126 @@
+temporal:
+  host: temporal-frontend.rocketship:7233
+  namespace: default
+
+auth:
+  mode: oidc
+  oidc:
+    enabled: true
+    mode: github
+    issuer: https://app.rocketship.sh
+    clientID: rocketship-cli
+    audience: rocketship-cli
+    deviceEndpoint: https://app.rocketship.sh/device/code
+    tokenEndpoint: https://app.rocketship.sh/token
+    jwksURL: http://rocketship-controlplane:8080/.well-known/jwks.json
+    scopes:
+      - read:org
+      - read:user
+      - user:email
+
+controlplane:
+  enabled: true
+  image:
+    tag: latest
+  issuer: https://app.rocketship.sh
+  clientID: rocketship-cli
+  audience: rocketship-cli
+  scopes:
+    - read:org
+    - read:user
+    - user:email
+  github:
+    clientID: Ov23li6jRbnoviVURzs9
+    clientSecretSecret: rocketship-github-oauth
+    clientSecretKey: ROCKETSHIP_GITHUB_CLIENT_SECRET
+    scopes:
+      - read:org
+      - read:user
+      - user:email
+  envFrom:
+    - secretRef:
+        name: rocketship-github-oauth
+    - secretRef:
+        name: rocketship-postmark-secret
+    - secretRef:
+        name: rocketship-github-app
+    - secretRef:
+        name: rocketship-github-webhook
+  env:
+    - name: ROCKETSHIP_CONTROLPLANE_ACCESS_TTL
+      value: 15m
+    - name: ROCKETSHIP_CONTROLPLANE_REFRESH_TTL
+      value: 720h
+  signingKey:
+    secretName: rocketship-controlplane-signing
+    key: signing-key.pem
+    mountPath: /var/run/rocketship
+    fileName: signing-key.pem
+  refreshTokenKey:
+    secretName: rocketship-controlplane-secrets
+    secretKey: ROCKETSHIP_CONTROLPLANE_REFRESH_KEY
+  database:
+    secretName: rocketship-controlplane-db
+    secretKey: DATABASE_URL
+  ingress:
+    enabled: true
+    className: nginx
+    annotations:
+      cert-manager.io/cluster-issuer: letsencrypt-prod
+    hosts:
+      - host: api.rocketship.sh
+        paths:
+          - path: /
+            pathType: Prefix
+    tls:
+      - secretName: rocketship-api-tls
+        hosts:
+          - api.rocketship.sh
+
+engine:
+  image:
+    tag: latest
+  database:
+    secretName: rocketship-controlplane-db
+    secretKey: DATABASE_URL
+
+ingress:
+  enabled: true
+  className: nginx
+  annotations:
+    cert-manager.io/cluster-issuer: letsencrypt-prod
+    nginx.ingress.kubernetes.io/backend-protocol: GRPC
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: "0"
+  hosts:
+    - host: cli.rocketship.sh
+      paths:
+        - path: /
+          pathType: Prefix
+  tls:
+    - secretName: rocketship-cli-tls
+      hosts:
+        - cli.rocketship.sh
+
+postgres:
+  enabled: true
+
+postgresql:
+  auth:
+    existingSecret: rocketship-postgres-auth
+    existingSecretPasswordKey: password
+    existingSecretPostgresPasswordKey: postgres-password
+  image:
+    repository: bitnamilegacy/postgresql
+    tag: 16.3.0-debian-12-r23
+  primary:
+    persistence:
+      enabled: true
+      size: 5Gi
+
+worker:
+  image:
+    tag: latest
+  tokenSecret:
+    secretName: rocketship-worker-token
+    secretKey: token

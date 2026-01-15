@@ -27,6 +27,9 @@ go.work.sum
 # env file
 .env
 
+# Local prod key material
+.secrets-prod/
+
 # Editor/IDE
 # .idea/
 # .vscode/
