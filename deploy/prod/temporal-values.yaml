@@ -1,0 +1,25 @@
+server:
+  replicaCount: 1
+
+cassandra:
+  config:
+    cluster_size: 1
+    max_heap_size: 256M
+    heap_new_size: 64M
+
+elasticsearch:
+  replicas: 1
+  resources:
+    requests:
+      memory: 512Mi
+    limits:
+      memory: 1Gi
+
+web:
+  enabled: false
+
+prometheus:
+  enabled: false
+
+grafana:
+  enabled: false

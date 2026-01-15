@@ -1,0 +1,141 @@
+name: Deploy to Production
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "deploy/prod/**"
+  workflow_dispatch:
+    inputs:
+      skip_dogfood:
+        description: "Skip post-deploy dogfood tests"
+        required: false
+        default: "false"
+        type: boolean
+
+jobs:
+  deploy:
+    name: Deploy to DigitalOcean Kubernetes
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout internal repo
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Extract image tag from values file
+        id: version
+        run: |
+          TAG=$(yq '.engine.image.tag' deploy/prod/rocketship-values.yaml)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Failed to extract engine.image.tag from deploy/prod/rocketship-values.yaml" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Deploying version: $TAG"
+
+      - name: Checkout public repo (chart source)
+        uses: actions/checkout@v4
+        with:
+          repository: rocketship-ai/rocketship
+          ref: ${{ steps.version.outputs.tag }}
+          path: rocketship-public
+
+      - name: Install doctl
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DIGITALOCEAN_ACCESS_TOKEN }}
+
+      - name: Configure kubectl
+        run: doctl kubernetes cluster kubeconfig save rs-prod --expiry-seconds 600
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v3
+        with:
+          version: v3.14.0
+
+      - name: Deploy with Helm
+        run: |
+          helm upgrade --install rocketship rocketship-public/charts/rocketship \
+            --namespace rocketship \
+            -f deploy/prod/rocketship-values.yaml \
+            --wait \
+            --timeout 10m
+
+      - name: Verify deployment health
+        run: |
+          echo "Checking API health..."
+          curl -fsS https://api.rocketship.sh/healthz
+
+          echo "Checking JWKS endpoint..."
+          curl -fsS https://api.rocketship.sh/.well-known/jwks.json | head -c 200
+
+          echo ""
+          echo "Deployment health checks passed!"
+
+  dogfood:
+    name: Post-Deploy Dogfood Tests
+    needs: deploy
+    runs-on: ubuntu-latest
+    if: github.event.inputs.skip_dogfood != 'true'
+    steps:
+      - name: Checkout internal repo
+        uses: actions/checkout@v4
+
+      - name: Install yq
+        run: |
+          sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
+          sudo chmod +x /usr/local/bin/yq
+
+      - name: Extract image tag from values file
+        id: version
+        run: |
+          TAG=$(yq '.engine.image.tag' deploy/prod/rocketship-values.yaml)
+          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+            echo "Failed to extract engine.image.tag from deploy/prod/rocketship-values.yaml" >&2
+            exit 1
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout public repo (for CLI and test suites)
+        uses: actions/checkout@v4
+        with:
+          repository: rocketship-ai/rocketship
+          ref: ${{ steps.version.outputs.tag }}
+          path: rocketship-public
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+          check-latest: true
+
+      - name: Build CLI
+        working-directory: rocketship-public
+        run: go build -o ../rocketship ./cmd/rocketship
+
+      - name: Run dogfood suites
+        env:
+          ROCKETSHIP_TOKEN: ${{ secrets.ROCKETSHIP_TOKEN }}
+        run: |
+          if [ -z "$ROCKETSHIP_TOKEN" ]; then
+            echo "ROCKETSHIP_TOKEN not configured - skipping dogfood"
+            exit 0
+          fi
+
+          PUBLIC_SHA="$(cd rocketship-public && git rev-parse HEAD)"
+
+          ./rocketship run \
+            --engine grpcs://cli.rocketship.sh \
+            -d rocketship-public/.rocketship/ci \
+            --source github-actions \
+            --trigger ci \
+            --branch main \
+            --commit "$PUBLIC_SHA" \
+            --var test_session="deploy-${{ github.run_id }}" \
+            --metadata rs_repo_url="https://github.com/rocketship-ai/rocketship" \
+            --metadata rs_gh_run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --metadata rs_deploy_version="${{ steps.version.outputs.tag }}"
