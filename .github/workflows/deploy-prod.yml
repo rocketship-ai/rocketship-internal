@@ -26,22 +26,30 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Extract image tag from values file
+      - name: Extract image tag and chart ref from values file
         id: version
         run: |
-          TAG=$(yq '.engine.image.tag' deploy/prod/rocketship-values.yaml)
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+          IMAGE_TAG=$(yq '.engine.image.tag' deploy/prod/rocketship-values.yaml)
+          if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "null" ]; then
             echo "Failed to extract engine.image.tag from deploy/prod/rocketship-values.yaml" >&2
             exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Deploying version: $TAG"
+
+          CHART_REF="$IMAGE_TAG"
+          if [ "$CHART_REF" = "latest" ]; then
+            CHART_REF="main"
+          fi
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "chart_ref=$CHART_REF" >> "$GITHUB_OUTPUT"
+          echo "Deploying image tag: $IMAGE_TAG"
+          echo "Using chart ref: $CHART_REF"
 
       - name: Checkout public repo (chart source)
         uses: actions/checkout@v4
         with:
           repository: rocketship-ai/rocketship
-          ref: ${{ steps.version.outputs.tag }}
+          ref: ${{ steps.version.outputs.chart_ref }}
           path: rocketship-public
 
       - name: Install doctl
@@ -90,21 +98,30 @@ jobs:
           sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64
           sudo chmod +x /usr/local/bin/yq
 
-      - name: Extract image tag from values file
+      - name: Extract image tag and chart ref from values file
         id: version
         run: |
-          TAG=$(yq '.engine.image.tag' deploy/prod/rocketship-values.yaml)
-          if [ -z "$TAG" ] || [ "$TAG" = "null" ]; then
+          IMAGE_TAG=$(yq '.engine.image.tag' deploy/prod/rocketship-values.yaml)
+          if [ -z "$IMAGE_TAG" ] || [ "$IMAGE_TAG" = "null" ]; then
             echo "Failed to extract engine.image.tag from deploy/prod/rocketship-values.yaml" >&2
             exit 1
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+          CHART_REF="$IMAGE_TAG"
+          if [ "$CHART_REF" = "latest" ]; then
+            CHART_REF="main"
+          fi
+
+          echo "image_tag=$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+          echo "chart_ref=$CHART_REF" >> "$GITHUB_OUTPUT"
+          echo "Using image tag: $IMAGE_TAG"
+          echo "Using chart ref: $CHART_REF"
 
       - name: Checkout public repo (for CLI and test suites)
         uses: actions/checkout@v4
         with:
           repository: rocketship-ai/rocketship
-          ref: ${{ steps.version.outputs.tag }}
+          ref: ${{ steps.version.outputs.chart_ref }}
           path: rocketship-public
 
       - name: Set up Go
@@ -138,4 +155,4 @@ jobs:
             --var test_session="deploy-${{ github.run_id }}" \
             --metadata rs_repo_url="https://github.com/rocketship-ai/rocketship" \
             --metadata rs_gh_run_url="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
-            --metadata rs_deploy_version="${{ steps.version.outputs.tag }}"
+            --metadata rs_deploy_version="${{ steps.version.outputs.image_tag }}"
