@@ -147,7 +147,7 @@ jobs:
 
           ./rocketship run \
             --engine grpcs://cli.rocketship.sh \
-            -d rocketship-public/.rocketship/ci \
+            -d rocketship-public/.rocketship/ci/.rocketship \
             --source github-actions \
             --trigger ci \
             --branch main \
