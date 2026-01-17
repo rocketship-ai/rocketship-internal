@@ -1,7 +1,6 @@
 temporal:
   host: temporal-frontend.rocketship:7233
   namespace: default
-
 auth:
   mode: oidc
   oidc:
@@ -17,11 +16,10 @@ auth:
       - read:org
       - read:user
       - user:email
-
 controlplane:
   enabled: true
   image:
-    tag: latest
+    tag: v0.5.42
   issuer: https://app.rocketship.sh
   clientID: rocketship-cli
   audience: rocketship-cli
@@ -76,14 +74,12 @@ controlplane:
       - secretName: rocketship-api-tls
         hosts:
           - api.rocketship.sh
-
 engine:
   image:
-    tag: latest
+    tag: v0.5.42
   database:
     secretName: rocketship-controlplane-db
     secretKey: DATABASE_URL
-
 ingress:
   enabled: true
   className: nginx
@@ -101,10 +97,8 @@ ingress:
     - secretName: rocketship-cli-tls
       hosts:
         - cli.rocketship.sh
-
 postgres:
   enabled: true
-
 postgresql:
   auth:
     existingSecret: rocketship-postgres-auth
@@ -117,10 +111,9 @@ postgresql:
     persistence:
       enabled: true
       size: 5Gi
-
 worker:
   image:
-    tag: latest
+    tag: v0.5.42
   tokenSecret:
     secretName: rocketship-worker-token
     secretKey: token
