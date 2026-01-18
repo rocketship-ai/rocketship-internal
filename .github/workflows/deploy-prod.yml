@@ -135,6 +135,7 @@ jobs:
         run: go build -o ../rocketship ./cmd/rocketship
 
       - name: Run dogfood suites
+        working-directory: rocketship-public
         env:
           ROCKETSHIP_TOKEN: ${{ secrets.ROCKETSHIP_TOKEN }}
         run: |
@@ -143,11 +144,11 @@ jobs:
             exit 0
           fi
 
-          PUBLIC_SHA="$(cd rocketship-public && git rev-parse HEAD)"
+          PUBLIC_SHA="$(git rev-parse HEAD)"
 
-          ./rocketship run \
+          ../rocketship run \
             --engine grpcs://cli.rocketship.sh \
-            -d rocketship-public/.rocketship/ci/.rocketship \
+            -d .rocketship/ci/.rocketship \
             --source github-actions \
             --trigger ci \
             --branch main \
