@@ -19,7 +19,7 @@ auth:
 controlplane:
   enabled: true
   image:
-    tag: v0.5.42
+    tag: v0.5.43
   issuer: https://app.rocketship.sh
   clientID: rocketship-cli
   audience: rocketship-cli
@@ -76,7 +76,7 @@ controlplane:
           - api.rocketship.sh
 engine:
   image:
-    tag: v0.5.42
+    tag: v0.5.43
   database:
     secretName: rocketship-controlplane-db
     secretKey: DATABASE_URL
@@ -113,7 +113,7 @@ postgresql:
       size: 5Gi
 worker:
   image:
-    tag: v0.5.42
+    tag: v0.5.43
   tokenSecret:
     secretName: rocketship-worker-token
     secretKey: token
